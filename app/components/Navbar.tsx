@@ -2,14 +2,14 @@
 
 import { useRouter } from 'next/navigation';
 import { useClinic } from '@/contexts/ClinicContext';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabase } from '@/lib/supabaseClient';
 
 export function Navbar() {
   const router = useRouter();
   const { userClinics, activeClinicId, switchClinic } = useClinic();
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await getSupabase().auth.signOut();
     router.push('/auth');
   };
 

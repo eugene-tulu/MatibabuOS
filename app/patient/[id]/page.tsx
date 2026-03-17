@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { normalizePhone } from '@/utils/phoneUtils';
 import { useClinic } from '@/contexts/ClinicContext';
+import { getSupabase } from '@/lib/supabaseClient';
 
 interface Transaction {
   id: string;
@@ -29,68 +30,116 @@ export default function PatientDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { activeClinicId } = useClinic();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Decode the patient ID if it's encoded
   const decodedPatientId = typeof patientId === 'string' ? decodeURIComponent(patientId) : '';
 
   useEffect(() => {
-    // In a real implementation, this would fetch patient data from the API
-    // For now, we'll simulate the data
+    // Abort any in-flight request when dependencies change
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     const fetchPatientData = async () => {
       try {
+        // Only set loading if this is the most recent request
+        if (abortControllerRef.current !== abortController) {
+          return;
+        }
         setLoading(true);
-        
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        // Mock patient data
-        const mockPatient: Patient = {
-          id: decodedPatientId,
-          name: 'John Doe',
-          phone: normalizePhone(decodedPatientId),
-          balance: 1250.00,
+
+        if (!navigator.onLine) {
+          if (abortControllerRef.current === abortController) {
+            setError('You appear to be offline. Please connect and try again.');
+          }
+          return;
+        }
+
+        if (!activeClinicId) {
+          if (abortControllerRef.current === abortController) {
+            setError('No active clinic selected.');
+          }
+          return;
+        }
+
+        const { data: patientRow, error: patientError } = await getSupabase()
+          .from('patient_balances')
+          .select('patient_id, name, phone, balance')
+          .eq('clinic_id', activeClinicId)
+          .eq('patient_id', decodedPatientId)
+          .single()
+          .abortSignal(abortController.signal);
+
+        if (patientError) {
+          const msg = (patientError as any).message?.toLowerCase?.() ?? '';
+          if (msg.includes('permission')) {
+            setError('Access denied.');
+            return;
+          }
+          console.error('Patient detail error:', patientError);
+          setError('Failed to load patient data. Please try again.');
+          return;
+        }
+
+        const resolvedPatient: Patient = {
+          id: patientRow.patient_id,
+          name: patientRow.name,
+          phone: normalizePhone(patientRow.phone),
+          balance: Number(patientRow.balance ?? 0),
           createdAt: new Date().toISOString(),
         };
-        
-        // Mock transaction data
-        const mockTransactions: Transaction[] = [
-          {
-            id: 'txn-1',
-            amount: 500,
-            description: 'Medication purchase',
-            createdAt: new Date(Date.now() - 86400000).toISOString(), // Yesterday
-            createdBy: 'admin@example.com',
-          },
-          {
-            id: 'txn-2',
-            amount: -250,
-            description: 'Payment received',
-            createdAt: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
-            createdBy: 'admin@example.com',
-          },
-          {
-            id: 'txn-3',
-            amount: 1000,
-            description: 'Consultation fee',
-            createdAt: new Date(Date.now() - 259200000).toISOString(), // 3 days ago
-            createdBy: 'admin@example.com',
-          },
-        ];
-        
-        setPatient(mockPatient);
-        setTransactions(mockTransactions);
+
+        const { data: txnRows, error: txnError } = await getSupabase()
+          .from('transactions')
+          .select('id, amount, description, created_at, created_by')
+          .eq('clinic_id', activeClinicId)
+          .eq('patient_id', decodedPatientId)
+          .order('created_at', { ascending: false })
+          .limit(50)
+          // @ts-expect-error - abortSignal is supported in supabase-js but types may be outdated
+          .abortSignal(abortController.signal);
+
+        if (txnError) {
+          console.error('Transaction fetch error:', txnError);
+        }
+
+        const resolvedTxns: Transaction[] =
+          txnRows?.map((t: any) => ({
+            id: t.id,
+            amount: Number(t.amount ?? 0),
+            description: t.description ?? '',
+            createdAt: t.created_at,
+            createdBy: t.created_by ?? '',
+          })) ?? [];
+
+        setPatient(resolvedPatient);
+        setTransactions(resolvedTxns);
       } catch (err) {
-        setError('Failed to load patient data. Please try again.');
-        console.error('Patient detail error:', err);
+        if ((err as any)?.name === 'AbortError') {
+          return; // Silently ignore abort errors
+        }
+        if (abortControllerRef.current === abortController) {
+          setError('Failed to load patient data. Please try again.');
+          console.error('Patient detail error:', err);
+        }
       } finally {
-        setLoading(false);
+        if (abortControllerRef.current === abortController) {
+          setLoading(false);
+        }
       }
     };
 
     if (decodedPatientId) {
       fetchPatientData();
     }
-  }, [decodedPatientId]);
+
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, [decodedPatientId, activeClinicId]);
 
   if (loading) {
     return (

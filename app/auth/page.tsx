@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabase } from '@/lib/supabaseClient';
 
 type Mode = 'sign-in' | 'sign-up';
 
@@ -30,7 +30,7 @@ export default function AuthPage() {
 
     try {
       if (mode === 'sign-in') {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
+        const { error: signInError } = await getSupabase().auth.signInWithPassword({
           email,
           password,
         });
@@ -40,13 +40,25 @@ export default function AuthPage() {
           return;
         }
       } else {
-        const { error: signUpError } = await supabase.auth.signUp({
+        const { error: signUpError, data } = await getSupabase().auth.signUp({
           email,
           password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
+          },
         });
 
         if (signUpError) {
           setError(signUpError.message);
+          return;
+        }
+
+        // Check if email confirmation is required
+        // If email_confirmed_at is null, the user needs to confirm their email
+        if (data?.user && !data.user.email_confirmed_at) {
+          // User was created but needs to confirm email
+          setInfo('Please check your email to confirm your account. You will be redirected after confirmation.');
+          // Don't redirect yet - wait for email confirmation
           return;
         }
       }
@@ -77,8 +89,11 @@ export default function AuthPage() {
     setIsLoading(true);
 
     try {
-      const { error: magicError } = await supabase.auth.signInWithOtp({
+      const { error: magicError } = await getSupabase().auth.signInWithOtp({
         email: magicEmail,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
       });
 
       if (magicError) {
@@ -86,7 +101,7 @@ export default function AuthPage() {
         return;
       }
 
-      setInfo('Magic link sent! Please check your email.');
+      setInfo('Magic link sent! Please check your email and click the link to sign in.');
     } catch (err) {
       console.error('Magic link error', err);
       if (!navigator.onLine) {

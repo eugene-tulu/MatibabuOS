@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabase } from '@/lib/supabaseClient';
 import { useClinic } from '@/contexts/ClinicContext';
 
 export default function OnboardingPage() {
@@ -13,7 +13,7 @@ export default function OnboardingPage() {
     const run = async () => {
       const {
         data: { user },
-      } = await supabase.auth.getUser();
+      } = await getSupabase().auth.getUser();
 
       if (!user) {
         router.replace('/auth');

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabase } from '@/lib/supabaseClient';
 import { useClinic } from '@/contexts/ClinicContext';
 
 export default function CreateClinicPage() {
@@ -29,14 +29,14 @@ export default function CreateClinicPage() {
       const {
         data: { user },
         error: userError,
-      } = await supabase.auth.getUser();
+      } = await getSupabase().auth.getUser();
 
       if (userError || !user) {
         setError('You must be signed in to create a clinic.');
         return;
       }
 
-      const { data: clinic, error: clinicError } = await supabase
+      const { data: clinic, error: clinicError } = await getSupabase()
         .from('clinics')
         .insert({ name: clinicName.trim() })
         .select('id, name, created_at')
@@ -59,7 +59,7 @@ export default function CreateClinicPage() {
         return;
       }
 
-      const { error: joinError } = await supabase.from('user_clinics').insert({
+      const { error: joinError } = await getSupabase().from('user_clinics').insert({
         user_id: user.id,
         clinic_id: clinic.id,
         role: 'owner',

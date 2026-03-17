@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabase } from '@/lib/supabaseClient';
 import { getUserClinics, validateActiveClinic } from '@/utils/sessionValidation';
 
 interface Clinic {
@@ -19,7 +19,7 @@ interface ClinicContextType {
   loading: boolean;
   setLoading: (loading: boolean) => void;
   switchClinic: (clinicId: string) => Promise<void>;
-  refreshClinics: () => Promise<void>;
+  refreshClinics: () => Promise<Clinic[]>;
 }
 
 const ClinicContext = createContext<ClinicContextType | undefined>(undefined);
@@ -90,7 +90,7 @@ export function ClinicProvider({ children }: { children: ReactNode }) {
       try {
         const {
           data: { user },
-        } = await supabase.auth.getUser();
+        } = await getSupabase().auth.getUser();
 
         if (!user) {
           if (!isMounted) return;

@@ -29,11 +29,14 @@
       "@/components/*": [
         "components/*"
       ],
+      "@/contexts/*": [
+        "src/contexts/*"
+      ],
       "@/utils/*": [
         "src/utils/*"
       ],
       "@/lib/*": [
-        "lib/*"
+        "src/lib/*"
       ],
       "@/hooks/*": [
         "hooks/*"

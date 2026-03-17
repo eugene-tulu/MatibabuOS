@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabase } from '@/lib/supabaseClient';
 
 /**
  * Validates if the active clinic ID is still valid for the current user
@@ -11,7 +11,7 @@ export async function validateActiveClinic(activeClinicId: string): Promise<bool
 
   try {
     // Get the current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const { data: { user }, error: userError } = await getSupabase().auth.getUser();
     
     if (userError || !user) {
       console.error('Error getting user:', userError);
@@ -19,7 +19,7 @@ export async function validateActiveClinic(activeClinicId: string): Promise<bool
     }
 
     // Check if the user has access to the clinic
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('user_clinics')
       .select('clinic_id')
       .eq('user_id', user.id)
@@ -44,13 +44,13 @@ export async function validateActiveClinic(activeClinicId: string): Promise<bool
  */
 export async function getUserClinics() {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const { data: { user }, error: userError } = await getSupabase().auth.getUser();
     
     if (userError || !user) {
       throw new Error('User not authenticated');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('user_clinics')
       .select(`
         clinic_id,
