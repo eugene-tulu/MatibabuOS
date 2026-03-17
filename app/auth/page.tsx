@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSupabase } from '@/lib/supabaseClient';
+import { validatePassword } from '@/utils/authUtils';
 
 type Mode = 'sign-in' | 'sign-up';
 
@@ -15,6 +16,11 @@ export default function AuthPage() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const router = useRouter();
+  
+  // Rate limiting for magic link
+  const magicLinkTimestamps = useRef<number[]>([]);
+  const MAGIC_LINK_RATE_LIMIT = 3; // max 3 attempts
+  const MAGIC_LINK_RATE_WINDOW_MS = 60 * 1000; // per minute
 
   const handleEmailPasswordAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,11 +32,22 @@ export default function AuthPage() {
       return;
     }
 
+    // Validate password strength only during sign-up
+    if (mode === 'sign-up') {
+      const passwordValidation = validatePassword(password);
+      if (!passwordValidation.isValid) {
+        setError(passwordValidation.errors.join(' '));
+        return;
+      }
+    }
+
     setIsLoading(true);
 
     try {
+      let userId: string | null = null;
+      
       if (mode === 'sign-in') {
-        const { error: signInError } = await getSupabase().auth.signInWithPassword({
+        const { error: signInError, data } = await getSupabase().auth.signInWithPassword({
           email,
           password,
         });
@@ -39,6 +56,7 @@ export default function AuthPage() {
           setError(signInError.message);
           return;
         }
+        userId = data.user?.id ?? null;
       } else {
         const { error: signUpError, data } = await getSupabase().auth.signUp({
           email,
@@ -61,12 +79,29 @@ export default function AuthPage() {
           // Don't redirect yet - wait for email confirmation
           return;
         }
+        userId = data.user?.id ?? null;
       }
 
+      // Check if user already has a clinic
+      if (userId) {
+        const { data: userClinics } = await getSupabase()
+          .from('user_clinics')
+          .select('clinic_id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (userClinics) {
+          // User already has a clinic, redirect to home
+          router.push('/');
+          return;
+        }
+      }
+
+      // User doesn't have a clinic yet, redirect to create clinic
       router.push('/create-clinic');
     } catch (err) {
       console.error('Auth error', err);
-      if (!navigator.onLine) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
         setError('You appear to be offline. Please check your internet connection and try again.');
       } else {
         setError('Something went wrong. Please try again.');
@@ -86,6 +121,20 @@ export default function AuthPage() {
       return;
     }
 
+    // Client-side rate limiting
+    const now = Date.now();
+    const oneMinuteAgo = now - MAGIC_LINK_RATE_WINDOW_MS;
+    
+    // Remove timestamps older than 1 minute
+    magicLinkTimestamps.current = magicLinkTimestamps.current.filter(t => t > oneMinuteAgo);
+    
+    if (magicLinkTimestamps.current.length >= MAGIC_LINK_RATE_LIMIT) {
+      setError(`Too many requests. Please wait ${Math.ceil((magicLinkTimestamps.current[0] + MAGIC_LINK_RATE_WINDOW_MS - now) / 1000)} seconds before trying again.`);
+      return;
+    }
+    
+    magicLinkTimestamps.current.push(now);
+
     setIsLoading(true);
 
     try {
@@ -102,9 +151,11 @@ export default function AuthPage() {
       }
 
       setInfo('Magic link sent! Please check your email and click the link to sign in.');
+      // Clear the magic link rate limit on success to allow sending to another email if needed
+      magicLinkTimestamps.current = [];
     } catch (err) {
       console.error('Magic link error', err);
-      if (!navigator.onLine) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
         setError('You appear to be offline. Please check your internet connection and try again.');
       } else {
         setError('Failed to send magic link. Please try again.');
@@ -113,6 +164,13 @@ export default function AuthPage() {
       setIsLoading(false);
     }
   };
+
+  // Clear rate limit when email changes
+  useState(() => {
+    return () => {
+      magicLinkTimestamps.current = [];
+    };
+  });
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
@@ -171,6 +229,25 @@ export default function AuthPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'}
             />
+            {mode === 'sign-up' && (
+              <div className="mt-2 space-y-1">
+                <p className="text-xs text-gray-500">Password must contain:</p>
+                <ul className="text-xs space-y-0.5">
+                  <li className={password.length >= 8 ? 'text-green-600' : 'text-gray-500'}>
+                    • At least 8 characters
+                  </li>
+                  <li className={/[a-z]/.test(password) ? 'text-green-600' : 'text-gray-500'}>
+                    • At least one lowercase letter
+                  </li>
+                  <li className={/[A-Z]/.test(password) ? 'text-green-600' : 'text-gray-500'}>
+                    • At least one uppercase letter
+                  </li>
+                  <li className={/\d/.test(password) ? 'text-green-600' : 'text-gray-500'}>
+                    • At least one number
+                  </li>
+                </ul>
+              </div>
+            )}
           </div>
 
           {error && <div className="text-sm text-red-600">{error}</div>}

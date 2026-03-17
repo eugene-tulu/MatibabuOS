@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Row Level Security (RLS) policies for data isolation
 - Phone normalization utilities
 - Audit trail with created_by fields
-- README.md with setup instructions
+- README.md with comprehensive setup instructions including Supabase auth configuration and troubleshooting guide
 - CHANGELOG.md for tracking changes
 - Phone number normalization utility with validation
 - Simple test function for phone utilities
@@ -43,6 +43,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debounced patient search on the main dashboard (phone-only MVP)
 - Patient search result preview card (name, phone, balance, last visit) with deep link to patient detail
 - "Add New Patient" flow that pre-fills the searched phone number
+- **New Dashboard page** (`/`) with two clear actions: Search and Add
+- **Dedicated Search page** (`/search`) with phone normalization and name fallback search
+- **Name fallback search**: When phone search returns no results, users can search by patient name
+- **Add Patient page enhancements**:
+  - Warning when phone is optional but left empty
+  - Duplicate detection (by phone or similar name) before creation
+  - Service tag dropdown (Chronic Care, Acute Illness, Immunization, ANC, General Consult, Other)
+  - Optional initial amount field to create first transaction immediately
+  - Optional notes field
+- **Patient Detail page improvements**:
+  - Skeleton loading states for better UX
+  - Service tag column in transaction history table
+  - "Record Transaction" modal with optimistic UI updates
+  - "Edit Patient" button (placeholder for future)
+- **Record Transaction modal**:
+  - Type selection: Dispense (+) or Payment (-)
+  - Service tag dropdown (same standardized tags)
+  - Amount input with sign determined by type
+  - Medication/Details and Notes fields
+  - Optimistic UI: transaction appears immediately on success
+  - Audit trail: auto-fills `created_by` from session
+- **Database migration 003**: Added `service_tag` column to `transactions` table with index
 
 ### Changed
 - Moved phone normalization logic to phoneUtils.ts with additional validation
@@ -92,6 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated auth page to include proper redirect URLs for both email/password and magic link flows
   - Fixed email confirmation detection to use `email_confirmed_at` instead of `identities.length`
   - Added emailRedirectTo option to magic link for proper callback handling
+- Bug 4: Fixed middleware authentication check to include request cookies. The middleware now uses `createSupabaseClientFromRequest(request)` which includes cookies from the request, allowing proper session detection on the server side. This fixes the issue where signed-in users were being redirected back to `/auth` because the server couldn't see their session.
 
 ### Changed
 - Improved phone validation consistency by using isValidKenyanPhone utility

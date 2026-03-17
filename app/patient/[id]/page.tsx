@@ -1,16 +1,29 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { normalizePhone } from '@/utils/phoneUtils';
 import { useClinic } from '@/contexts/ClinicContext';
 import { getSupabase } from '@/lib/supabaseClient';
+import RecordTransactionModal from '../../components/RecordTransactionModal';
+
+const SERVICE_TAGS = [
+  'Chronic Care',
+  'Acute Illness',
+  'Immunization',
+  'ANC',
+  'General Consult',
+  'Other',
+] as const;
+
+type ServiceTag = (typeof SERVICE_TAGS)[number];
 
 interface Transaction {
   id: string;
   amount: number;
   description: string;
+  serviceTag: ServiceTag | null;
   createdAt: string;
   createdBy: string;
 }
@@ -29,123 +42,135 @@ export default function PatientDetailPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showTransactionModal, setShowTransactionModal] = useState(false);
   const { activeClinicId } = useClinic();
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Decode the patient ID if it's encoded
   const decodedPatientId = typeof patientId === 'string' ? decodeURIComponent(patientId) : '';
 
+  const fetchPatientData = useCallback(async (signal: AbortSignal) => {
+    if (!decodedPatientId || !activeClinicId) return;
+
+    try {
+      const { data: patientRow, error: patientError } = await getSupabase()
+        .from('patient_balances')
+        .select('patient_id, name, phone, balance')
+        .eq('clinic_id', activeClinicId)
+        .eq('patient_id', decodedPatientId)
+        .single()
+        .abortSignal(signal);
+
+      if (patientError) {
+        const msg = (patientError as any).message?.toLowerCase?.() ?? '';
+        if (msg.includes('permission')) {
+          setError('Access denied.');
+          return;
+        }
+        console.error('Patient detail error:', patientError);
+        setError('Failed to load patient data. Please try again.');
+        return;
+      }
+
+      const resolvedPatient: Patient = {
+        id: patientRow.patient_id,
+        name: patientRow.name,
+        phone: normalizePhone(patientRow.phone),
+        balance: Number(patientRow.balance ?? 0),
+        createdAt: new Date().toISOString(),
+      };
+
+      const { data: txnRows, error: txnError } = await getSupabase()
+        .from('transactions')
+        .select('id, amount, description, service_tag, created_at, created_by')
+        .eq('clinic_id', activeClinicId)
+        .eq('patient_id', decodedPatientId)
+        .order('created_at', { ascending: false })
+        .limit(50)
+        .abortSignal(signal);
+
+      if (txnError) {
+        console.error('Transaction fetch error:', txnError);
+      }
+
+      const resolvedTxns: Transaction[] =
+        txnRows?.map((t: any) => ({
+          id: t.id,
+          amount: Number(t.amount ?? 0),
+          description: t.description ?? '',
+          serviceTag: t.service_tag || null,
+          createdAt: t.created_at,
+          createdBy: t.created_by ?? '',
+        })) ?? [];
+
+      setPatient(resolvedPatient);
+      setTransactions(resolvedTxns);
+    } catch (err) {
+      if ((err as any)?.name === 'AbortError') {
+        return;
+      }
+      console.error('Patient detail error:', err);
+      setError('Failed to load patient data. Please try again.');
+    }
+  }, [decodedPatientId, activeClinicId]);
+
   useEffect(() => {
-    // Abort any in-flight request when dependencies change
+    if (!decodedPatientId) return;
+
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
+    setLoading(true);
+    setError(null);
 
-    const fetchPatientData = async () => {
-      try {
-        // Only set loading if this is the most recent request
-        if (abortControllerRef.current !== abortController) {
-          return;
-        }
-        setLoading(true);
-
-        if (!navigator.onLine) {
-          if (abortControllerRef.current === abortController) {
-            setError('You appear to be offline. Please connect and try again.');
-          }
-          return;
-        }
-
-        if (!activeClinicId) {
-          if (abortControllerRef.current === abortController) {
-            setError('No active clinic selected.');
-          }
-          return;
-        }
-
-        const { data: patientRow, error: patientError } = await getSupabase()
-          .from('patient_balances')
-          .select('patient_id, name, phone, balance')
-          .eq('clinic_id', activeClinicId)
-          .eq('patient_id', decodedPatientId)
-          .single()
-          .abortSignal(abortController.signal);
-
-        if (patientError) {
-          const msg = (patientError as any).message?.toLowerCase?.() ?? '';
-          if (msg.includes('permission')) {
-            setError('Access denied.');
-            return;
-          }
-          console.error('Patient detail error:', patientError);
-          setError('Failed to load patient data. Please try again.');
-          return;
-        }
-
-        const resolvedPatient: Patient = {
-          id: patientRow.patient_id,
-          name: patientRow.name,
-          phone: normalizePhone(patientRow.phone),
-          balance: Number(patientRow.balance ?? 0),
-          createdAt: new Date().toISOString(),
-        };
-
-        const { data: txnRows, error: txnError } = await getSupabase()
-          .from('transactions')
-          .select('id, amount, description, created_at, created_by')
-          .eq('clinic_id', activeClinicId)
-          .eq('patient_id', decodedPatientId)
-          .order('created_at', { ascending: false })
-          .limit(50)
-          // @ts-expect-error - abortSignal is supported in supabase-js but types may be outdated
-          .abortSignal(abortController.signal);
-
-        if (txnError) {
-          console.error('Transaction fetch error:', txnError);
-        }
-
-        const resolvedTxns: Transaction[] =
-          txnRows?.map((t: any) => ({
-            id: t.id,
-            amount: Number(t.amount ?? 0),
-            description: t.description ?? '',
-            createdAt: t.created_at,
-            createdBy: t.created_by ?? '',
-          })) ?? [];
-
-        setPatient(resolvedPatient);
-        setTransactions(resolvedTxns);
-      } catch (err) {
-        if ((err as any)?.name === 'AbortError') {
-          return; // Silently ignore abort errors
-        }
-        if (abortControllerRef.current === abortController) {
-          setError('Failed to load patient data. Please try again.');
-          console.error('Patient detail error:', err);
-        }
-      } finally {
-        if (abortControllerRef.current === abortController) {
-          setLoading(false);
-        }
+    void fetchPatientData(abortController.signal).finally(() => {
+      if (abortControllerRef.current === abortController) {
+        setLoading(false);
       }
-    };
-
-    if (decodedPatientId) {
-      fetchPatientData();
-    }
+    });
 
     return () => {
       abortControllerRef.current?.abort();
     };
-  }, [decodedPatientId, activeClinicId]);
+  }, [decodedPatientId, activeClinicId, fetchPatientData]);
+
+  const handleTransactionAdded = (newTransaction: Transaction) => {
+    setTransactions((prev) => [newTransaction, ...prev]);
+    setPatient((prev) => prev ? { ...prev, balance: prev.balance + newTransaction.amount } : prev);
+    setShowTransactionModal(false);
+  };
 
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto p-4">
+        <div className="mb-6">
+          <div className="h-6 bg-gray-200 rounded animate-pulse w-24"></div>
+        </div>
+        <div className="bg-white shadow rounded-lg p-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-3">
+              <div className="h-6 bg-gray-200 rounded animate-pulse w-32"></div>
+              <div className="h-8 bg-gray-200 rounded animate-pulse w-48"></div>
+              <div className="h-5 bg-gray-200 rounded animate-pulse w-40"></div>
+            </div>
+            <div className="space-y-3">
+              <div className="h-5 bg-gray-200 rounded animate-pulse w-20"></div>
+              <div className="h-10 bg-gray-200 rounded animate-pulse w-32"></div>
+            </div>
+            <div className="flex space-x-2">
+              <div className="h-10 bg-gray-200 rounded animate-pulse flex-1"></div>
+              <div className="h-10 bg-gray-200 rounded animate-pulse flex-1"></div>
+            </div>
+          </div>
+        </div>
         <div className="bg-white shadow rounded-lg p-6">
-          <p>Loading patient details...</p>
+          <div className="h-6 bg-gray-200 rounded animate-pulse w-40 mb-4"></div>
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-12 bg-gray-200 rounded animate-pulse"></div>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -180,7 +205,7 @@ export default function PatientDetailPage() {
   return (
     <div className="max-w-4xl mx-auto p-4">
       <div className="mb-6">
-        <Link href="/" className="text-blue-600 hover:text-blue-800">
+        <Link href="/" className="text-blue-600 hover:text-blue-800 font-medium">
           ← Back to Search
         </Link>
       </div>
@@ -188,9 +213,9 @@ export default function PatientDetailPage() {
       <div className="bg-white shadow rounded-lg p-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <h2 className="text-xl font-semibold">Patient Details</h2>
-            <p className="font-medium">{patient.name}</p>
-            <p>{patient.phone}</p>
+            <h2 className="text-xl font-semibold text-gray-900">Patient Details</h2>
+            <p className="font-medium text-gray-900 mt-1">{patient.name}</p>
+            {patient.phone && <p className="text-gray-600">{patient.phone}</p>}
           </div>
           
           <div>
@@ -202,21 +227,37 @@ export default function PatientDetailPage() {
           </div>
           
           <div className="flex space-x-2">
-            <button className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
-              Add Dispense
+            <button
+              onClick={() => setShowTransactionModal(true)}
+              className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 font-medium"
+            >
+              + Record Transaction
             </button>
-            <button className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">
-              Record Payment
+            <button
+              onClick={() => {
+                alert('Edit functionality coming in a future update.');
+              }}
+              className="flex-1 bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 font-medium"
+            >
+              Edit Patient
             </button>
           </div>
         </div>
       </div>
       
       <div className="bg-white shadow rounded-lg p-6">
-        <h3 className="text-lg font-medium mb-4">Transaction History</h3>
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Transaction History</h3>
         
         {transactions.length === 0 ? (
-          <p>No transactions yet.</p>
+          <div className="text-center py-8 text-gray-500">
+            <p>No transactions yet.</p>
+            <button
+              onClick={() => setShowTransactionModal(true)}
+              className="mt-4 text-blue-600 hover:text-blue-800 font-medium"
+            >
+              Record your first transaction →
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -226,13 +267,13 @@ export default function PatientDetailPage() {
                     Date
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Service
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Description
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Amount
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Type
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Added By
@@ -246,15 +287,15 @@ export default function PatientDetailPage() {
                       {new Date(transaction.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {transaction.serviceTag || '-'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
                       {transaction.description}
                     </td>
                     <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
                       transaction.amount >= 0 ? 'text-red-600' : 'text-green-600'
                     }`}>
                       {transaction.amount >= 0 ? '+' : ''}{transaction.amount.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {transaction.amount >= 0 ? 'Dispense' : 'Payment'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {transaction.createdBy}
@@ -266,6 +307,16 @@ export default function PatientDetailPage() {
           </div>
         )}
       </div>
+
+      {showTransactionModal && (
+        <RecordTransactionModal
+          patientId={patient.id}
+          patientName={patient.name}
+          clinicId={activeClinicId!}
+          onClose={() => setShowTransactionModal(false)}
+          onTransactionAdded={handleTransactionAdded}
+        />
+      )}
     </div>
   );
 }

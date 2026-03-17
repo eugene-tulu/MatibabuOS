@@ -9,8 +9,25 @@ export function Navbar() {
   const { userClinics, activeClinicId, switchClinic } = useClinic();
 
   const handleLogout = async () => {
-    await getSupabase().auth.signOut();
-    router.push('/auth');
+    try {
+      await getSupabase().auth.signOut();
+    } finally {
+      // Clear any remaining client state
+      if (typeof window !== 'undefined') {
+        // Clear localStorage
+        window.localStorage.clear();
+        // Clear sessionStorage
+        window.sessionStorage.clear();
+        // Clear Supabase auth cookies
+        const cookies = document.cookie.split(';');
+        cookies.forEach(cookie => {
+          const [name] = cookie.split('=');
+          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/;`;
+        });
+      }
+      // Redirect to auth page
+      router.push('/auth');
+    }
   };
 
   const handleClinicChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {

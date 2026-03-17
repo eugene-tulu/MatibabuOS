@@ -36,25 +36,63 @@ export default function CreateClinicPage() {
         return;
       }
 
+      // Debug: Check session
+      const { data: { session } } = await getSupabase().auth.getSession();
+      console.log('Session debug:', {
+        hasSession: !!session,
+        hasToken: !!session?.access_token,
+        userId: user.id,
+        tokenPreview: session?.access_token?.slice(0, 20) + '...',
+        sessionExpiresAt: session?.expires_at,
+        fullSession: session ? {
+          access_token: session.access_token?.slice(0, 50) + '...',
+          refresh_token: session.refresh_token ? 'present' : 'missing',
+          expires_at: session.expires_at,
+          user: session.user?.id
+        } : null
+      });
+
+      console.log('Creating clinic with name:', clinicName.trim());
+      console.log('User ID:', user.id);
+      
       const { data: clinic, error: clinicError } = await getSupabase()
         .from('clinics')
         .insert({ name: clinicName.trim() })
         .select('id, name, created_at')
         .single();
 
+      console.log('Clinic insert result:', { clinic, clinicError });
+      
       if (clinicError) {
-        if ((clinicError as any).code === '23505') {
+        console.error('Clinic creation error details:', {
+          error: clinicError,
+          errorType: typeof clinicError,
+          errorConstructor: clinicError?.constructor?.name,
+          errorKeys: clinicError ? Object.keys(clinicError) : [],
+          errorStringified: JSON.stringify(clinicError, null, 2)
+        });
+        
+        // Safely extract error information
+        const errorObj = clinicError as any;
+        const errorMessage = errorObj?.message || errorObj?.toString?.() || 'Unknown error';
+        const errorCode = errorObj?.code || '';
+        const errorDetails = errorObj?.details || '';
+        
+        console.log('Extracted error info:', { errorMessage, errorCode, errorDetails });
+        
+        if (errorCode === '23505' || errorMessage.toLowerCase().includes('unique') || errorMessage.toLowerCase().includes('duplicate')) {
           setError('That clinic name is already taken. Please choose another.');
-        } else if ((clinicError as any).code === 'PGRST301') {
-          setError('Permission denied. Please complete onboarding again.');
+        } else if (errorCode === 'PGRST301' || errorMessage.toLowerCase().includes('permission')) {
+          setError('Permission denied. Please sign in again.');
           router.push('/auth');
+        } else if (errorMessage.toLowerCase().includes('row level security') || errorMessage.toLowerCase().includes('policy')) {
+          setError('Security policy violation. Please contact support if this persists.');
+        } else if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          setError('You appear to be offline. Please check your internet connection and try again.');
         } else {
-          console.error('Clinic creation error', clinicError);
-          if (!navigator.onLine) {
-            setError('You appear to be offline. Please check your internet connection and try again.');
-          } else {
-            setError('Failed to create clinic. Please try again.');
-          }
+          // Show the actual error message
+          const displayMessage = errorMessage && errorMessage !== 'Unknown error' ? errorMessage : 'Please try again.';
+          setError(`Failed to create clinic. ${displayMessage}`);
         }
         return;
       }
@@ -66,8 +104,15 @@ export default function CreateClinicPage() {
       });
 
       if (joinError) {
-        console.error('Error joining clinic', joinError);
-        setInfo('Clinic created, but we could not finalize your membership. Please contact support.');
+        console.error('Error joining clinic:', joinError);
+        console.error('Join error details:', {
+          code: (joinError as any).code,
+          message: (joinError as any).message,
+          details: (joinError as any).details,
+          hint: (joinError as any).hint
+        });
+        const joinErrorMessage = (joinError as any).message || 'Unknown error';
+        setInfo(`Clinic created, but we could not finalize your membership: ${joinErrorMessage}. Please contact support if this persists.`);
       }
 
       const newClinic = {
@@ -86,11 +131,21 @@ export default function CreateClinicPage() {
 
       router.push('/');
     } catch (err) {
-      console.error('Unexpected clinic creation error', err);
-      if (!navigator.onLine) {
+      console.error('Unexpected clinic creation error:', err);
+      console.error('Catch error details:', {
+        type: typeof err,
+        constructor: err?.constructor?.name,
+        message: err instanceof Error ? err.message : 'Not an Error instance',
+        stack: err instanceof Error ? err.stack : 'No stack',
+        stringified: JSON.stringify(err, null, 2)
+      });
+      
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
         setError('You appear to be offline. Please check your internet connection and try again.');
+      } else if (err instanceof Error) {
+        setError(`Failed to create clinic: ${err.message}. Please try again.`);
       } else {
-        setError('Failed to create clinic. Please try again.');
+        setError('Failed to create clinic. An unexpected error occurred. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -134,7 +189,7 @@ export default function CreateClinicPage() {
         </button>
       </form>
 
-      {!navigator.onLine && (
+      {typeof navigator !== 'undefined' && !navigator.onLine && (
         <div className="mt-4 text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-md p-2">
           You are currently offline. Actions will fail until your connection is restored.
         </div>

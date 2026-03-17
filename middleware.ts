@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabase } from '@/lib/supabaseClient';
+import { createSupabaseClientForMiddleware } from '@/lib/supabaseClient';
 
 // Routes that require the user to be authenticated (excluding /auth itself)
 const protectedRoutes = ['/', '/create-clinic', '/onboarding', '/patient'];
@@ -13,17 +13,18 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Get supabase client - will throw if env vars not set
+  // Get supabase client with request cookies for proper auth checking
   let supabase;
   try {
-    supabase = getSupabase();
+    supabase = createSupabaseClientForMiddleware(request);
   } catch (error) {
-    // In development, allow passing through if Supabase not configured
-    if (process.env.NODE_ENV !== 'production') {
-      return NextResponse.next();
-    }
-    // In production, this should never happen - redirect to auth error
-    return NextResponse.redirect(`${request.nextUrl.origin}/auth?error=Server%20configuration%20error`);
+    console.error('Failed to create Supabase client:', error);
+    // Always require Supabase configuration - this should never happen in any environment
+    // Redirect to auth page with a clear error message
+    const errorParams = new URLSearchParams({
+      error: 'Server configuration error. Please check environment variables.'
+    });
+    return NextResponse.redirect(`${request.nextUrl.origin}/auth?${errorParams.toString()}`);
   }
 
   // Special handling for auth pages
@@ -73,24 +74,36 @@ export async function middleware(request: NextRequest) {
     const activeClinicIdCookie = request.cookies.get('active_clinic_id')?.value;
 
     if (!activeClinicIdCookie) {
-      const url = request.nextUrl.clone();
-      url.pathname = '/create-clinic';
-      return NextResponse.redirect(url);
-    }
+      // Check if user has any clinics
+      const { data: existingClinics } = await supabase
+        .from('user_clinics')
+        .select('clinic_id')
+        .eq('user_id', user.id);
 
-    // Validate that the user has access to this clinic
-    const { data: userClinic, error: clinicError } = await supabase
-      .from('user_clinics')
-      .select('clinic_id')
-      .eq('user_id', user.id)
-      .eq('clinic_id', activeClinicIdCookie)
-      .maybeSingle();
+      if (!existingClinics || existingClinics.length === 0) {
+        // User has no clinics, redirect to create clinic
+        const url = request.nextUrl.clone();
+        url.pathname = '/create-clinic';
+        return NextResponse.redirect(url);
+      }
+      // User has clinics but no active clinic selected in cookie
+      // Allow the request to proceed - client-side will handle setting active clinic
+      // from localStorage or default to first clinic
+    } else {
+      // Validate that the user has access to the clinic in the cookie
+      const { data: userClinic, error: clinicError } = await supabase
+        .from('user_clinics')
+        .select('clinic_id')
+        .eq('user_id', user.id)
+        .eq('clinic_id', activeClinicIdCookie)
+        .maybeSingle();
 
-    if (clinicError || !userClinic) {
-      // User doesn't have access to this clinic, redirect to create clinic
-      const url = request.nextUrl.clone();
-      url.pathname = '/create-clinic';
-      return NextResponse.redirect(url);
+      if (clinicError || !userClinic) {
+        // User doesn't have access to this clinic, redirect to create clinic
+        const url = request.nextUrl.clone();
+        url.pathname = '/create-clinic';
+        return NextResponse.redirect(url);
+      }
     }
   }
 

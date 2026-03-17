@@ -10,6 +10,7 @@
     "test:phone": "tsx scripts/test-phone-utils.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.45.4",
     "lucide-react": "^0.408.0",
     "next": "^16.1.6",

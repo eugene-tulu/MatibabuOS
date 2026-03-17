@@ -42,6 +42,16 @@ export async function validateActiveClinic(activeClinicId: string): Promise<bool
 /**
  * Gets all clinics the current user has access to
  */
+interface UserClinicWithDetails {
+  clinic_id: string;
+  role: string;
+  clinics: {
+    id: string;
+    name: string;
+    created_at: string;
+  } | null;
+}
+
 export async function getUserClinics() {
   try {
     const { data: { user }, error: userError } = await getSupabase().auth.getUser();
@@ -65,11 +75,23 @@ export async function getUserClinics() {
     }
 
     // Transform the data to a cleaner format
-    return data.map(item => ({
+    // Note: Supabase returns clinics as an array, so we take the first element
+    interface UserClinicRow {
+      clinic_id: string;
+      role: string;
+      clinics: Array<{
+        id: string;
+        name: string;
+        created_at: string;
+      }> | null;
+    }
+    
+    const typedData = data as UserClinicRow[];
+    return typedData.map(item => ({
       id: item.clinic_id,
-      name: item.clinics?.name || '',
+      name: item.clinics?.[0]?.name || '',
       role: item.role,
-      createdAt: item.clinics?.created_at || ''
+      createdAt: item.clinics?.[0]?.created_at || ''
     }));
   } catch (error) {
     console.error('Error fetching user clinics:', error);
