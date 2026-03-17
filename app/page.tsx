@@ -4,20 +4,39 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { normalizePhone } from '@/utils/phoneUtils';
 import { useClinic } from '@/contexts/ClinicContext';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function HomePage() {
   const [phoneInput, setPhoneInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const router = useRouter();
   const { activeClinicId, loading: clinicLoading } = useClinic();
 
+  useEffect(() => {
+    const checkAuth = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/auth');
+        return;
+      }
+
+      setAuthChecked(true);
+    };
+
+    void checkAuth();
+  }, [router]);
+
   // Redirect if no active clinic is set
   useEffect(() => {
-    if (!clinicLoading && !activeClinicId) {
-      router.push('/onboarding');
+    if (!clinicLoading && authChecked && !activeClinicId) {
+      router.push('/create-clinic');
     }
-  }, [activeClinicId, clinicLoading, router]);
+  }, [activeClinicId, clinicLoading, authChecked, router]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +71,7 @@ export default function HomePage() {
     }
   };
 
-  if (clinicLoading || !activeClinicId) {
+  if (clinicLoading || !authChecked || !activeClinicId) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p>Loading...</p>

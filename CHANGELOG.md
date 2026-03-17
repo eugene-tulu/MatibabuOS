@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Supabase email/password authentication with optional magic link sign-in
+- Auth page for sign up and sign in flows
+- Create clinic page wired to Supabase `clinics` and `user_clinics` tables
+- Clinic navbar with simple clinic switcher dropdown
+- Active clinic session syncing between React context, localStorage, and cookies
 - Initial project setup for MatibabuOS MVP
 - Database schema for multi-tenant patient ledger system
 - Clinics, patients, and transactions tables
@@ -39,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Moved phone normalization logic to phoneUtils.ts with additional validation
 - Added comprehensive test function for phone normalization
+- Clinic context now loads clinics from Supabase and validates active clinics against `user_clinics`
+- Onboarding flow now redirects new users without clinics to the create clinic page
+- Middleware now protects routes using Supabase auth and active clinic validation
+
+### Fixed
+- Handled clinic name uniqueness conflicts with user-friendly error messages
+- Improved feedback for permission denied and offline network scenarios during onboarding and auth flows
 
 ### Security
 - Implemented RLS policies to ensure users only see their clinic's data

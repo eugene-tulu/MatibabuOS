@@ -1,42 +1,84 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
-// Protected routes that require authentication and valid clinic
-const protectedRoutes = ['/'];
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export function middleware(request: NextRequest) {
-  // Check if the route is protected
-  const isProtectedRoute = protectedRoutes.some(route => 
-    request.nextUrl.pathname.startsWith(route) && 
-    route !== '/' || // Allow the root path to be handled separately
-    request.nextUrl.pathname === route
-  );
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-  // For now, we'll just check if the user has an active clinic
-  // In a real implementation, we'd check authentication tokens and clinic access
-  
-  if (isProtectedRoute) {
-    // Check if user has an active clinic in localStorage
-    // Note: In a real implementation, we'd use cookies or server-side auth
-    
-    // For now, just allow everything to pass through
-    // The actual validation will happen in the components
+const authOnlyRoutes = ['/create-clinic', '/onboarding', '/patient'];
+const clinicRequiredRoutes = ['/', '/patient'];
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  if (pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname === '/favicon.ico') {
     return NextResponse.next();
   }
 
-  // Allow public routes to pass through
+  if (pathname.startsWith('/auth')) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/';
+      return NextResponse.redirect(url);
+    }
+
+    return NextResponse.next();
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    const authUrl = request.nextUrl.clone();
+    authUrl.pathname = '/auth';
+    authUrl.searchParams.set('redirectedFrom', pathname);
+    return NextResponse.redirect(authUrl);
+  }
+
+  const requiresClinic = clinicRequiredRoutes.some((route) =>
+    route === '/'
+      ? pathname === '/'
+      : pathname === route || pathname.startsWith(`${route}/`),
+  );
+
+  if (!requiresClinic && authOnlyRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`))) {
+    return NextResponse.next();
+  }
+
+  const activeClinicIdCookie = request.cookies.get('active_clinic_id')?.value;
+
+  if (!requiresClinic) {
+    return NextResponse.next();
+  }
+
+  if (!activeClinicIdCookie) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/create-clinic';
+    return NextResponse.redirect(url);
+  }
+
+  const { data, error } = await supabase
+    .from('user_clinics')
+    .select('clinic_id')
+    .eq('user_id', user.id)
+    .eq('clinic_id', activeClinicIdCookie)
+    .maybeSingle();
+
+  if (error || !data) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/create-clinic';
+    return NextResponse.redirect(url);
+  }
+
   return NextResponse.next();
 }
 
-// Routes that the middleware should not run on
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
