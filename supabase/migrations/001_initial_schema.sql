@@ -1,15 +1,16 @@
--- Enable UUID extension
+-- 001_core_schema_security.sql
+
+-- 1. Enable Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Clinics table (simple)
+-- 2. Create Tables
 CREATE TABLE clinics (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name TEXT NOT NULL UNIQUE, -- Unique constraint to prevent duplicate names
+  name TEXT NOT NULL UNIQUE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- User-Clinic junction (one user can belong to multiple clinics later)
 CREATE TABLE user_clinics (
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   clinic_id UUID REFERENCES clinics(id) ON DELETE CASCADE,
@@ -18,95 +19,96 @@ CREATE TABLE user_clinics (
   PRIMARY KEY (user_id, clinic_id)
 );
 
--- Patients table
 CREATE TABLE patients (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  clinic_id uuid NOT NULL REFERENCES clinics(id),
+  clinic_id uuid NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  phone TEXT NOT NULL, -- Will store normalized phone numbers
+  phone TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Create index on clinic_id and phone for faster lookups
-CREATE INDEX idx_patients_clinic_phone ON patients(clinic_id, phone);
-
--- Transactions table
 CREATE TABLE transactions (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   patient_id uuid NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
-  clinic_id uuid NOT NULL REFERENCES clinics(id),
-  amount DECIMAL(10,2) NOT NULL, -- Amount can be positive (dispense) or negative (payment)
+  clinic_id uuid NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  amount DECIMAL(10,2) NOT NULL,
   description TEXT,
-  created_by uuid REFERENCES auth.users(id), -- For audit trail
+  created_by uuid REFERENCES auth.users(id),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Create index on clinic_id and patient_id for faster lookups
-CREATE INDEX idx_transactions_clinic_patient ON transactions(clinic_id, patient_id);
-
--- Patient Balances View
--- This view calculates the balance for each patient by summing all transactions
-CREATE VIEW patient_balances AS
-SELECT 
-  p.id AS patient_id,
-  p.clinic_id,
-  p.name,
-  p.phone,
-  COALESCE(SUM(t.amount), 0) AS balance
-FROM patients p
-LEFT JOIN transactions t ON p.id = t.patient_id
-GROUP BY p.id, p.clinic_id, p.name, p.phone;
-
--- Enable Row Level Security (RLS) on all tables
+-- 3. Enable Row Level Security (RLS)
 ALTER TABLE clinics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_clinics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE patients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies
--- Users can only see clinics they belong to
-CREATE POLICY "Users see own clinics" ON clinics
-  FOR ALL USING (
-    id IN (
-      SELECT clinic_id FROM user_clinics WHERE user_id = auth.uid()
-    )
+-- 4. Create RLS Policies
+
+-- --- CLINICS ---
+-- Allow any authenticated user to CREATE a clinic (Fixes circular dependency)
+CREATE POLICY "Enable insert for authenticated users" ON clinics
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+-- Allow users to VIEW only clinics they belong to
+CREATE POLICY "Enable read access for own clinics" ON clinics
+  FOR SELECT USING (
+    id IN (SELECT clinic_id FROM user_clinics WHERE user_id = auth.uid())
   );
 
--- Users can only see user_clinic relationships they belong to
-CREATE POLICY "Users see own user_clinic relationships" ON user_clinics
-  FOR ALL USING (
-    user_id = auth.uid()
+-- Allow owners to UPDATE/DELETE clinics
+CREATE POLICY "Enable update/delete for owners" ON clinics
+  FOR UPDATE USING (
+    id IN (SELECT clinic_id FROM user_clinics WHERE user_id = auth.uid() AND role = 'owner')
+  );
+CREATE POLICY "Enable delete for owners" ON clinics
+  FOR DELETE USING (
+    id IN (SELECT clinic_id FROM user_clinics WHERE user_id = auth.uid() AND role = 'owner')
   );
 
--- Patients: Users can only see patients from their clinics
-CREATE POLICY "Users see own clinic patients" ON patients
+-- --- USER_CLINICS ---
+-- Users can see their own relationships
+CREATE POLICY "Users see own relationships" ON user_clinics
+  FOR SELECT USING (user_id = auth.uid());
+
+-- NOTE: No INSERT policy here. We use a Trigger to add owners safely.
+-- To add staff later, we will use a secure RPC function (see Script 003).
+
+-- --- PATIENTS ---
+-- Allow insert/update/delete if the user belongs to the clinic
+CREATE POLICY "Enable write for clinic members" ON patients
   FOR ALL USING (
-    clinic_id IN (
-      SELECT clinic_id FROM user_clinics WHERE user_id = auth.uid()
-    )
+    clinic_id IN (SELECT clinic_id FROM user_clinics WHERE user_id = auth.uid())
+  ) WITH CHECK (
+    clinic_id IN (SELECT clinic_id FROM user_clinics WHERE user_id = auth.uid())
   );
 
--- Transactions: Same isolation
-CREATE POLICY "Users see own clinic transactions" ON transactions
+-- --- TRANSACTIONS ---
+-- Allow insert/update/delete if the user belongs to the clinic
+CREATE POLICY "Enable write for clinic members" ON transactions
   FOR ALL USING (
-    clinic_id IN (
-      SELECT clinic_id FROM user_clinics WHERE user_id = auth.uid()
-    )
+    clinic_id IN (SELECT clinic_id FROM user_clinics WHERE user_id = auth.uid())
+  ) WITH CHECK (
+    clinic_id IN (SELECT clinic_id FROM user_clinics WHERE user_id = auth.uid())
   );
 
--- Trigger to update the updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
+-- 5. Create Ownership Trigger (Auto-adds creator as 'owner')
+CREATE OR REPLACE FUNCTION handle_clinic_creation()
 RETURNS TRIGGER AS $$
 BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
+  INSERT INTO user_clinics (user_id, clinic_id, role)
+  VALUES (auth.uid(), NEW.id, 'owner');
+  RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Apply the trigger to clinics and patients tables
-CREATE TRIGGER update_clinics_updated_at BEFORE UPDATE ON clinics
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER on_clinic_created
+  AFTER INSERT ON clinics
+  FOR EACH ROW
+  EXECUTE FUNCTION handle_clinic_creation();
 
-CREATE TRIGGER update_patients_updated_at BEFORE UPDATE ON patients
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- 6. Grant Schema Permissions (Critical for API access)
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;

@@ -71,40 +71,38 @@ export async function middleware(request: NextRequest) {
   );
 
   if (requiresClinic && user) {
+    // First, check if user has any clinics at all
+    const { data: existingClinics } = await supabase
+      .from('user_clinics')
+      .select('clinic_id')
+      .eq('user_id', user.id);
+
+    if (!existingClinics || existingClinics.length === 0) {
+      // User has no clinics, redirect to create clinic
+      const url = request.nextUrl.clone();
+      url.pathname = '/create-clinic';
+      return NextResponse.redirect(url);
+    }
+
+    // User has at least one clinic. If an active_clinic_id cookie is present, validate it.
+    // If invalid, we'll ignore it and let the client handle clinic selection.
     const activeClinicIdCookie = request.cookies.get('active_clinic_id')?.value;
-
-    if (!activeClinicIdCookie) {
-      // Check if user has any clinics
-      const { data: existingClinics } = await supabase
-        .from('user_clinics')
-        .select('clinic_id')
-        .eq('user_id', user.id);
-
-      if (!existingClinics || existingClinics.length === 0) {
-        // User has no clinics, redirect to create clinic
-        const url = request.nextUrl.clone();
-        url.pathname = '/create-clinic';
-        return NextResponse.redirect(url);
-      }
-      // User has clinics but no active clinic selected in cookie
-      // Allow the request to proceed - client-side will handle setting active clinic
-      // from localStorage or default to first clinic
-    } else {
-      // Validate that the user has access to the clinic in the cookie
-      const { data: userClinic, error: clinicError } = await supabase
+    if (activeClinicIdCookie) {
+      const { data: userClinic } = await supabase
         .from('user_clinics')
         .select('clinic_id')
         .eq('user_id', user.id)
         .eq('clinic_id', activeClinicIdCookie)
         .maybeSingle();
 
-      if (clinicError || !userClinic) {
-        // User doesn't have access to this clinic, redirect to create clinic
-        const url = request.nextUrl.clone();
-        url.pathname = '/create-clinic';
-        return NextResponse.redirect(url);
+      if (!userClinic) {
+        // Invalid cookie - clear it so client can set a new one
+        const response = NextResponse.next();
+        response.cookies.delete('active_clinic_id');
+        return response;
       }
     }
+    // Allow request to proceed - client will set active clinic if needed
   }
 
   return NextResponse.next();

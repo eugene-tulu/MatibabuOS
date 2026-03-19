@@ -96,7 +96,7 @@ export default function DashboardPage() {
           </button>
 
           <button
-            onClick={() => (router.push as any)('/add')}
+            onClick={() => router.push('/patient/new')}
             className="w-full flex items-center justify-center px-8 py-6 border border-gray-300 text-base font-medium rounded-lg shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
           >
             <span className="text-2xl mr-3">➕</span>

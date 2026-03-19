@@ -446,7 +446,7 @@ export default function SearchPage() {
               type="button"
               onClick={() => {
                 const phoneParam = normalizedPhone?.startsWith('+') ? normalizedPhone : '';
-                (router.push as any)(`/add?phone=${encodeURIComponent(phoneParam)}`);
+                router.push(`/patient/new?phone=${encodeURIComponent(phoneParam)}`);
               }}
               className="w-full bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 font-medium"
             >

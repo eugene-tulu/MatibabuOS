@@ -60,39 +60,67 @@ export async function getUserClinics() {
       throw new Error('User not authenticated');
     }
 
-    const { data, error } = await getSupabase()
-      .from('user_clinics')
-      .select(`
-        clinic_id,
-        role,
-        clinics (id, name, created_at)
-      `)
-      .eq('user_id', user.id)
-      .order('created_at', { referencedTable: 'clinics' });
+    console.log('Fetching clinics for user:', user.id);
 
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    // Transform the data to a cleaner format
-    // Note: Supabase returns clinics as an array, so we take the first element
+    // Define interfaces for type safety
     interface UserClinicRow {
       clinic_id: string;
       role: string;
-      clinics: Array<{
-        id: string;
-        name: string;
-        created_at: string;
-      }> | null;
     }
-    
-    const typedData = data as UserClinicRow[];
-    return typedData.map(item => ({
-      id: item.clinic_id,
-      name: item.clinics?.[0]?.name || '',
-      role: item.role,
-      createdAt: item.clinics?.[0]?.created_at || ''
-    }));
+
+    interface ClinicDetail {
+      id: string;
+      name: string;
+      created_at: string;
+    }
+
+    // First, get the user_clinics records
+    const { data: userClinicsData, error: userClinicsError } = await getSupabase()
+      .from('user_clinics')
+      .select(`
+        clinic_id,
+        role
+      `)
+      .eq('user_id', user.id);
+
+    if (userClinicsError) {
+      console.error('Error fetching user_clinics:', userClinicsError);
+      throw new Error(userClinicsError.message);
+    }
+
+    console.log('Found user_clinics:', userClinicsData);
+
+    // Then, get the clinic details separately to avoid potential RLS issues with joins
+    if (userClinicsData.length === 0) {
+      return [];
+    }
+
+    const clinicIds = userClinicsData.map((uc: UserClinicRow) => uc.clinic_id);
+    const { data: clinicsData, error: clinicsError } = await getSupabase()
+      .from('clinics')
+      .select('id, name, created_at')
+      .in('id', clinicIds);
+
+    if (clinicsError) {
+      console.error('Error fetching clinics:', clinicsError);
+      throw new Error(clinicsError.message);
+    }
+
+    console.log('Found clinics:', clinicsData);
+
+    // Combine the data
+    const clinics = userClinicsData.map((uc: UserClinicRow) => {
+      const clinicDetail = clinicsData.find((c: ClinicDetail) => c.id === uc.clinic_id);
+      return {
+        id: uc.clinic_id,
+        name: clinicDetail?.name || '',
+        role: uc.role,
+        createdAt: clinicDetail?.created_at || ''
+      };
+    }).filter((clinic: { name: string }) => clinic.name !== ''); // Filter out any clinics with missing data
+
+    console.log('Final clinics result:', clinics);
+    return clinics;
   } catch (error) {
     console.error('Error fetching user clinics:', error);
     throw error;

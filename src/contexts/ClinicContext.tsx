@@ -18,7 +18,7 @@ interface ClinicContextType {
   setUserClinics: (clinics: Clinic[]) => void;
   loading: boolean;
   setLoading: (loading: boolean) => void;
-  switchClinic: (clinicId: string) => Promise<void>;
+  switchClinic: (clinicId: string) => Promise<boolean>;
   refreshClinics: () => Promise<Clinic[]>;
 }
 
@@ -69,16 +69,17 @@ export function ClinicProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const switchClinic = useCallback(
-    async (clinicId: string) => {
-      if (!clinicId) return;
+    async (clinicId: string): Promise<boolean> => {
+      if (!clinicId) return false;
 
       const isValid = await validateActiveClinic(clinicId);
       if (!isValid) {
         console.warn('Attempted to switch to invalid clinic', clinicId);
-        return;
+        return false;
       }
 
       setActiveClinicId(clinicId);
+      return true;
     },
     [setActiveClinicId],
   );
@@ -101,23 +102,27 @@ export function ClinicProvider({ children }: { children: ReactNode }) {
         }
 
         const clinics = await refreshClinics();
-
+        
         let initialActiveClinicId: string | null = null;
-
+        
         if (typeof window !== 'undefined') {
           const fromStorage = window.localStorage.getItem(ACTIVE_CLINIC_STORAGE_KEY);
-          if (fromStorage && clinics.some((c) => c.id === fromStorage)) {
+          if (fromStorage && clinics.some((c: Clinic) => c.id === fromStorage)) {
             const isValid = await validateActiveClinic(fromStorage);
             if (isValid) {
               initialActiveClinicId = fromStorage;
+            } else {
+              // If the stored clinic is invalid, clear it from storage
+              window.localStorage.removeItem(ACTIVE_CLINIC_STORAGE_KEY);
+              document.cookie = `${ACTIVE_CLINIC_COOKIE_NAME}=; path=/; max-age=0`;
             }
           }
         }
-
+        
         if (!initialActiveClinicId && clinics.length > 0) {
           initialActiveClinicId = clinics[0].id;
         }
-
+        
         if (isMounted) {
           setActiveClinicId(initialActiveClinicId);
         }

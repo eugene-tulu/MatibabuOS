@@ -91,22 +91,56 @@ function NewPatientForm() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
+  
     if (!activeClinicId) {
       router.push('/create-clinic');
       return;
     }
-
+  
+    // Validate that the user still has access to the active clinic
+    try {
+      const { data: { user }, error: userError } = await getSupabase().auth.getUser();
+      if (userError || !user) {
+        router.push('/auth');
+        return;
+      }
+  
+      // Check if user has access to the active clinic
+      const { data: clinicAccess, error: accessError } = await getSupabase()
+        .from('user_clinics')
+        .select('clinic_id')
+        .eq('user_id', user.id)
+        .eq('clinic_id', activeClinicId)
+        .maybeSingle();
+  
+      if (accessError || !clinicAccess) {
+        // User no longer has access to this clinic
+        setError('You no longer have access to the selected clinic. Please select another clinic.');
+        // Clear the invalid clinic from storage
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem('activeClinicId');
+        }
+        // Remove the cookie as well
+        document.cookie = 'active_clinic_id=; path=/; max-age=0';
+        router.push('/create-clinic');
+        return;
+      }
+    } catch (validationError) {
+      console.error('Clinic access validation error:', validationError);
+      setError('Unable to validate clinic access. Please try again.');
+      return;
+    }
+  
     if (!name.trim()) {
       setError('Please enter the patient name.');
       return;
     }
-
+  
     if (duplicateWarning) {
       setError('A similar patient already exists. Please check the records or use a different name/phone.');
       return;
     }
-
+  
     let finalPhone: string | null = null;
     if (phone.trim()) {
       finalPhone = normalizePhone(phone);
@@ -115,10 +149,10 @@ function NewPatientForm() {
         return;
       }
     }
-
+  
     const amountValue = parseFloat(initialAmount);
     const hasInitialAmount = !isNaN(amountValue) && initialAmount.trim() !== '';
-
+  
     setIsLoading(true);
     try {
       const { data: patientData, error: patientError } = await getSupabase()
@@ -130,7 +164,7 @@ function NewPatientForm() {
         })
         .select('id')
         .single();
-
+  
       if (patientError) {
         const message = (patientError as any).message?.toLowerCase?.() ?? '';
         if (message.includes('permission')) {
@@ -145,7 +179,7 @@ function NewPatientForm() {
         setError('Failed to create patient. Please try again.');
         return;
       }
-
+  
       if (hasInitialAmount) {
         const { error: txnError } = await getSupabase()
           .from('transactions')
@@ -155,12 +189,12 @@ function NewPatientForm() {
             amount: amountValue,
             description: `Initial ${amountValue >= 0 ? 'dispense' : 'payment'}`,
           });
-
+  
         if (txnError) {
           console.error('Create initial transaction error', txnError);
         }
       }
-
+  
       router.push(`/patient/${encodeURIComponent(patientData.id)}`);
     } catch (err) {
       console.error('Create patient error', err);

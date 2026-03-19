@@ -1,17 +1,30 @@
--- Add last_visit to patient_balances view for search preview.
--- last_visit represents the most recent transaction timestamp per patient.
+-- 002_column_enhancements.sql
 
-DROP VIEW IF EXISTS patient_balances;
+-- 1. Add Notes to Patients (General History/Allergies)
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS notes TEXT;
+COMMENT ON COLUMN patients.notes IS 'General patient history, allergies, or chronic conditions.';
 
-CREATE VIEW patient_balances AS
-SELECT
-  p.id AS patient_id,
-  p.clinic_id,
-  p.name,
-  p.phone,
-  COALESCE(SUM(t.amount), 0) AS balance,
-  MAX(t.created_at) AS last_visit
-FROM patients p
-LEFT JOIN transactions t ON p.id = t.patient_id
-GROUP BY p.id, p.clinic_id, p.name, p.phone;
+-- 2. Add Service Tag to Transactions (Categorization)
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS service_tag TEXT;
+COMMENT ON COLUMN transactions.service_tag IS 'Service category (e.g., Chronic Care, Acute Illness).';
 
+-- Enforce valid tags to prevent data pollution
+ALTER TABLE transactions ADD CONSTRAINT check_service_tag_values 
+CHECK (service_tag IS NULL OR service_tag IN (
+  'Chronic Care', 
+  'Acute Illness', 
+  'Immunization', 
+  'ANC', 
+  'General Consult', 
+  'Other'
+));
+
+-- 3. Add Clinical Notes to Transactions (Visit Specific Prescriptions)
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS clinical_notes TEXT;
+COMMENT ON COLUMN transactions.clinical_notes IS 'Specific details for this visit: drugs prescribed, services offered.';
+
+-- 4. Create Indexes for Performance
+CREATE INDEX IF NOT EXISTS idx_patients_clinic_phone ON patients(clinic_id, phone);
+CREATE INDEX IF NOT EXISTS idx_transactions_clinic_patient ON transactions(clinic_id, patient_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_service_tag ON transactions(service_tag);
+CREATE INDEX IF NOT EXISTS idx_patients_notes ON patients USING gin (to_tsvector('english', notes));
