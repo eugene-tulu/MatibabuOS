@@ -94,7 +94,6 @@ export default function SearchPage() {
     abortRef.current = controller;
 
     setSearchState('loading');
-    console.time('patient_search');
 
     try {
       const { data, error: queryError } = await getSupabase()
@@ -105,7 +104,7 @@ export default function SearchPage() {
         .maybeSingle()
         .abortSignal(controller.signal);
 
-      if (controller.signal.aborted) return;
+    if (controller.signal.aborted) return;
 
       if (queryError) {
         const message = (queryError as any).message?.toLowerCase?.() ?? '';
@@ -114,7 +113,6 @@ export default function SearchPage() {
           return;
         }
 
-        console.error('Search error:', queryError);
         setSearchState('error');
         setError('Try again.');
         return;
@@ -138,11 +136,10 @@ export default function SearchPage() {
       setSearchState('found');
     } catch (err) {
       if ((err as any)?.name === 'AbortError') return;
-      console.error('Search error:', err);
       setSearchState('error');
       setError(!navigator.onLine ? 'Check your connection and try again.' : 'Try again.');
     } finally {
-      console.timeEnd('patient_search');
+      // Timing removed for production
     }
   };
 
@@ -169,7 +166,6 @@ export default function SearchPage() {
     abortRef.current = controller;
 
     setSearchState('loading');
-    console.time('name_search');
 
     try {
       // Simple ILIKE search for name (fuzzy match)
@@ -189,7 +185,6 @@ export default function SearchPage() {
           router.push('/create-clinic');
           return;
         }
-        console.error('Search error:', queryError);
         setSearchState('error');
         setError('Try again.');
         return;
@@ -214,11 +209,10 @@ export default function SearchPage() {
       setSearchState('found');
     } catch (err) {
       if ((err as any)?.name === 'AbortError') return;
-      console.error('Search error:', err);
       setSearchState('error');
       setError(!navigator.onLine ? 'Check your connection and try again.' : 'Try again.');
     } finally {
-      console.timeEnd('name_search');
+      // Timing removed for production
     }
   };
 

@@ -50,23 +50,15 @@ export default function PatientDetailPage() {
   
    const fetchPatientData = useCallback(async (signal: AbortSignal) => {
      if (!decodedPatientId || !activeClinicId) return;
-   
+
      try {
-       // Debug: Log query parameters
-       console.log('Fetching patient data:', {
-         decodedPatientId,
-         activeClinicId,
-         signalAborted: signal.aborted
-       });
-   
        // Validate that the user has access to the active clinic before attempting to fetch patient data
        const { data: { user }, error: userError } = await getSupabase().auth.getUser();
        if (userError || !user) {
-         console.error('Auth error:', userError);
          setError('Authentication error. Please sign in again.');
          return;
        }
-   
+
        // Check if user has access to the active clinic
        const { data: clinicAccess, error: accessError } = await getSupabase()
          .from('user_clinics')
@@ -74,10 +66,9 @@ export default function PatientDetailPage() {
          .eq('user_id', user.id)
          .eq('clinic_id', activeClinicId)
          .maybeSingle();
-   
+
        if (accessError || !clinicAccess) {
          // User no longer has access to this clinic
-         console.warn('Clinic access denied:', { accessError, clinicAccess, activeClinicId, userId: user.id });
          setError('You no longer have access to this clinic. Please select another clinic.');
          // Clear the invalid clinic from storage
          if (typeof window !== 'undefined') {
@@ -87,43 +78,23 @@ export default function PatientDetailPage() {
          document.cookie = 'active_clinic_id=; path=/; max-age=0';
          return;
        }
-   
-       console.log('Querying patient_balances with:', { clinic_id: activeClinicId, patient_id: decodedPatientId });
+
        const { data: patientRow, error: patientError } = await getSupabase()
          .from('patient_balances')
          .select('patient_id, name, phone, balance')
          .eq('clinic_id', activeClinicId)
          .eq('patient_id', decodedPatientId)
-         .maybeSingle()  // Changed from .single() to .maybeSingle() for safer handling
+         .maybeSingle()
          .abortSignal(signal);
-   
+
        // If the request was aborted, don't process any errors
        if (signal.aborted) return;
-   
+
        if (patientError) {
-         // Comprehensive error logging
          const errorObj = patientError as any;
-         const errorDetails = {
-           name: errorObj.name,
-           message: errorObj.message,
-           code: errorObj.code,
-           details: errorObj.details,
-           hint: errorObj.hint,
-           status: errorObj.status,
-           constructor: errorObj.constructor?.name,
-           toString: errorObj.toString?.(),
-           // Try to get all enumerable properties
-           allProps: Object.keys(errorObj).reduce((acc: any, key: string) => {
-             acc[key] = errorObj[key];
-             return acc;
-           }, {}),
-         };
-         console.error('Patient detail error:', errorDetails);
-         
-         // Handle specific error cases
          const msg = errorObj.message?.toLowerCase?.() ?? '';
          const code = errorObj.code;
-         
+
          if (msg.includes('permission') || msg.includes('not authorized') || code === '42501') {
            setError('Access denied. You may not have permission to view this patient.');
            return;
@@ -143,14 +114,13 @@ export default function PatientDetailPage() {
          setError('Failed to load patient data. Please try again.');
          return;
        }
-   
+
        // Handle case where patient doesn't exist
        if (!patientRow) {
-         console.log('No patient found with:', { clinic_id: activeClinicId, patient_id: decodedPatientId });
          setError('Patient not found.');
          return;
        }
-   
+
        const resolvedPatient: Patient = {
          id: patientRow.patient_id,
          name: patientRow.name,
@@ -158,8 +128,7 @@ export default function PatientDetailPage() {
          balance: Number(patientRow.balance ?? 0),
          createdAt: new Date().toISOString(),
        };
-   
-       console.log('Fetching transactions for patient:', decodedPatientId);
+
        const { data: txnRows, error: txnError } = await getSupabase()
          .from('transactions')
          .select('id, amount, description, service_tag, created_at, created_by')
@@ -168,20 +137,10 @@ export default function PatientDetailPage() {
          .order('created_at', { ascending: false })
          .limit(50)
          .abortSignal(signal);
-   
+
        // If the request was aborted, don't process any errors
        if (signal.aborted) return;
-   
-       if (txnError) {
-         const txnErrorObj = txnError as any;
-         console.error('Transaction fetch error:', {
-           message: txnErrorObj.message,
-           code: txnErrorObj.code,
-           details: txnErrorObj.details,
-           hint: txnErrorObj.hint,
-         });
-       }
-   
+
        const resolvedTxns: Transaction[] =
          txnRows?.map((t: any) => ({
            id: t.id,
@@ -191,8 +150,7 @@ export default function PatientDetailPage() {
            createdAt: t.created_at,
            createdBy: t.created_by ?? '',
          })) ?? [];
-   
-       console.log('Patient data loaded:', { patient: resolvedPatient, transactionCount: resolvedTxns.length });
+
        setPatient(resolvedPatient);
        setTransactions(resolvedTxns);
      } catch (err) {
@@ -202,17 +160,8 @@ export default function PatientDetailPage() {
          (err as any)?.message?.includes('The operation was aborted')
        ) {
          // Request was aborted (normal during component unmount/fast refresh)
-         // Don't show error message for aborted requests
-         console.log('Fetch aborted (expected during re-render)');
          return;
        }
-       const caughtErr = err as Error;
-       console.error('Patient detail catch error:', {
-         name: caughtErr.name,
-         message: caughtErr.message,
-         stack: caughtErr.stack,
-         fullError: caughtErr
-       });
        setError('Failed to load patient data. Please try again.');
      }
    }, [decodedPatientId, activeClinicId]);

@@ -100,7 +100,6 @@ export default function AuthPage() {
       // User doesn't have a clinic yet, redirect to create clinic
       router.push('/create-clinic');
     } catch (err) {
-      console.error('Auth error', err);
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         setError('You appear to be offline. Please check your internet connection and try again.');
       } else {
@@ -154,7 +153,6 @@ export default function AuthPage() {
       // Clear the magic link rate limit on success to allow sending to another email if needed
       magicLinkTimestamps.current = [];
     } catch (err) {
-      console.error('Magic link error', err);
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         setError('You appear to be offline. Please check your internet connection and try again.');
       } else {

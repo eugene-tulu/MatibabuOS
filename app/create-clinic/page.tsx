@@ -15,7 +15,6 @@ export default function CreateClinicPage() {
 
   // Refresh clinics on mount to ensure we have the latest list
   useEffect(() => {
-    console.log('Refreshing clinics on mount...');
     refreshClinics();
   }, [refreshClinics]);
 
@@ -45,9 +44,6 @@ export default function CreateClinicPage() {
         return;
       }
 
-      console.log('Creating clinic with name:', clinicName.trim());
-      console.log('User ID:', user.id);
-      
       const { data: clinic, error: clinicError } = await getSupabase()
         .from('clinics')
         .insert({ name: clinicName.trim() })
@@ -55,16 +51,11 @@ export default function CreateClinicPage() {
         .single();
 
       if (clinicError) {
-        console.error('Clinic creation error:', clinicError);
-        
         // Safely extract error information
         const errorObj = clinicError as any;
         const errorMessage = errorObj?.message || errorObj?.toString?.() || 'Unknown error';
         const errorCode = errorObj?.code || '';
-        const errorDetails = errorObj?.details || '';
-        
-        console.log('Extracted error info:', { errorMessage, errorCode, errorDetails });
-        
+
         if (errorCode === '23505' || errorMessage.toLowerCase().includes('unique') || errorMessage.toLowerCase().includes('duplicate')) {
           setError('That clinic name is already taken. Please choose another.');
         } else if (errorCode === 'PGRST301' || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('row level security') || errorMessage.toLowerCase().includes('policy')) {
@@ -91,15 +82,6 @@ export default function CreateClinicPage() {
 
       router.push('/');
     } catch (err) {
-      console.error('Unexpected clinic creation error:', err);
-      console.error('Catch error details:', {
-        type: typeof err,
-        constructor: err?.constructor?.name,
-        message: err instanceof Error ? err.message : 'Not an Error instance',
-        stack: err instanceof Error ? err.stack : 'No stack',
-        stringified: JSON.stringify(err, null, 2)
-      });
-      
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         setError('You appear to be offline. Please check your internet connection and try again.');
       } else if (err instanceof Error) {
@@ -125,16 +107,10 @@ export default function CreateClinicPage() {
       }
     } catch (err) {
       setError('Failed to switch clinic. Please try again.');
-      console.error('Clinic switch error:', err);
     } finally {
       setIsLoading(false);
     }
   };
-
-  // Debugging: Log the userClinics state
-  useEffect(() => {
-    console.log('Updated userClinics:', userClinics);
-  }, [userClinics]);
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4">

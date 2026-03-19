@@ -12,9 +12,8 @@ export async function validateActiveClinic(activeClinicId: string): Promise<bool
   try {
     // Get the current user
     const { data: { user }, error: userError } = await getSupabase().auth.getUser();
-    
+
     if (userError || !user) {
-      console.error('Error getting user:', userError);
       return false;
     }
 
@@ -27,14 +26,12 @@ export async function validateActiveClinic(activeClinicId: string): Promise<bool
       .single();
 
     if (error) {
-      console.error('Error checking clinic access:', error);
       return false;
     }
 
     // If we found a record, the user has access to the clinic
     return !!data;
   } catch (error) {
-    console.error('Unexpected error during clinic validation:', error);
     return false;
   }
 }
@@ -55,12 +52,10 @@ interface UserClinicWithDetails {
 export async function getUserClinics() {
   try {
     const { data: { user }, error: userError } = await getSupabase().auth.getUser();
-    
+
     if (userError || !user) {
       throw new Error('User not authenticated');
     }
-
-    console.log('Fetching clinics for user:', user.id);
 
     // Define interfaces for type safety
     interface UserClinicRow {
@@ -84,11 +79,8 @@ export async function getUserClinics() {
       .eq('user_id', user.id);
 
     if (userClinicsError) {
-      console.error('Error fetching user_clinics:', userClinicsError);
       throw new Error(userClinicsError.message);
     }
-
-    console.log('Found user_clinics:', userClinicsData);
 
     // Then, get the clinic details separately to avoid potential RLS issues with joins
     if (userClinicsData.length === 0) {
@@ -102,11 +94,8 @@ export async function getUserClinics() {
       .in('id', clinicIds);
 
     if (clinicsError) {
-      console.error('Error fetching clinics:', clinicsError);
       throw new Error(clinicsError.message);
     }
-
-    console.log('Found clinics:', clinicsData);
 
     // Combine the data
     const clinics = userClinicsData.map((uc: UserClinicRow) => {
@@ -119,10 +108,8 @@ export async function getUserClinics() {
       };
     }).filter((clinic: { name: string }) => clinic.name !== ''); // Filter out any clinics with missing data
 
-    console.log('Final clinics result:', clinics);
     return clinics;
   } catch (error) {
-    console.error('Error fetching user clinics:', error);
     throw error;
   }
 }

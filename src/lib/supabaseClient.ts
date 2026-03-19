@@ -84,11 +84,9 @@ export function createSupabaseClientForMiddleware(request: Request) {
       },
       set: () => {
         // Middleware can't set cookies directly - handled by NextResponse
-        console.warn('Cookie setting not supported in middleware client');
       },
       remove: () => {
         // Middleware can't remove cookies directly
-        console.warn('Cookie removal not supported in middleware client');
       }
     }
   });

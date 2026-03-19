@@ -17,8 +17,7 @@ export async function middleware(request: NextRequest) {
   let supabase;
   try {
     supabase = createSupabaseClientForMiddleware(request);
-  } catch (error) {
-    console.error('Failed to create Supabase client:', error);
+  } catch {
     // Always require Supabase configuration - this should never happen in any environment
     // Redirect to auth page with a clear error message
     const errorParams = new URLSearchParams({

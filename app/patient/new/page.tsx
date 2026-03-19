@@ -39,54 +39,54 @@ function NewPatientForm() {
     setPhone(normalizedPhone);
   }, [normalizedPhone]);
 
-  // Check for duplicates when name or phone changes
-  useEffect(() => {
-    const checkDuplicate = async () => {
-      if (!activeClinicId || (!name.trim() && !phone.trim())) {
-        setDuplicateWarning(null);
-        return;
-      }
+   // Check for duplicates when name or phone changes
+   useEffect(() => {
+     const checkDuplicate = async () => {
+       if (!activeClinicId || (!name.trim() && !phone.trim())) {
+         setDuplicateWarning(null);
+         return;
+       }
 
-      setIsCheckingDuplicate(true);
-      try {
-        let query = getSupabase()
-          .from('patients')
-          .select('id, name, phone')
-          .eq('clinic_id', activeClinicId);
+       setIsCheckingDuplicate(true);
+       try {
+         let query = getSupabase()
+           .from('patients')
+           .select('id, name, phone')
+           .eq('clinic_id', activeClinicId);
 
-        if (phone.trim()) {
-          const finalPhone = normalizePhone(phone);
-          if (finalPhone.startsWith('+')) {
-            const { data } = await query.eq('phone', finalPhone).limit(1);
-            if (data && data.length > 0) {
-              setDuplicateWarning({ name: data[0].name, phone: data[0].phone });
-              return;
-            }
-          }
-        }
+         if (phone.trim()) {
+           const finalPhone = normalizePhone(phone);
+           if (finalPhone.startsWith('+')) {
+             const { data } = await query.eq('phone', finalPhone).limit(1);
+             if (data && data.length > 0) {
+               setDuplicateWarning({ name: data[0].name, phone: data[0].phone });
+               return;
+             }
+           }
+         }
 
-        if (name.trim()) {
-          const { data } = await query.ilike('name', name.trim()).limit(1);
-          if (data && data.length > 0) {
-            setDuplicateWarning({ name: data[0].name, phone: data[0].phone });
-            return;
-          }
-        }
+         if (name.trim()) {
+           const { data } = await query.ilike('name', name.trim()).limit(1);
+           if (data && data.length > 0) {
+             setDuplicateWarning({ name: data[0].name, phone: data[0].phone });
+             return;
+           }
+         }
 
-        setDuplicateWarning(null);
-      } catch (err) {
-        console.error('Duplicate check error:', err);
-      } finally {
-        setIsCheckingDuplicate(false);
-      }
-    };
+         setDuplicateWarning(null);
+       } catch (err) {
+         // Silent fail for duplicate check - non-critical
+       } finally {
+         setIsCheckingDuplicate(false);
+       }
+     };
 
-    const debounce = setTimeout(() => {
-      void checkDuplicate();
-    }, 500);
+     const debounce = setTimeout(() => {
+       void checkDuplicate();
+     }, 500);
 
-    return () => clearTimeout(debounce);
-  }, [name, phone, activeClinicId]);
+     return () => clearTimeout(debounce);
+   }, [name, phone, activeClinicId]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,7 +126,6 @@ function NewPatientForm() {
         return;
       }
     } catch (validationError) {
-      console.error('Clinic access validation error:', validationError);
       setError('Unable to validate clinic access. Please try again.');
       return;
     }
@@ -175,29 +174,27 @@ function NewPatientForm() {
           setError('A patient with this phone number already exists.');
           return;
         }
-        console.error('Create patient error', patientError);
         setError('Failed to create patient. Please try again.');
         return;
       }
   
-      if (hasInitialAmount) {
-        const { error: txnError } = await getSupabase()
-          .from('transactions')
-          .insert({
-            patient_id: patientData.id,
-            clinic_id: activeClinicId,
-            amount: amountValue,
-            description: `Initial ${amountValue >= 0 ? 'dispense' : 'payment'}`,
-          });
-  
-        if (txnError) {
-          console.error('Create initial transaction error', txnError);
+        if (hasInitialAmount) {
+          const { error: txnError } = await getSupabase()
+            .from('transactions')
+            .insert({
+              patient_id: patientData.id,
+              clinic_id: activeClinicId,
+              amount: amountValue,
+              description: `Initial ${amountValue >= 0 ? 'dispense' : 'payment'}`,
+            });
+
+          if (txnError) {
+            // Silent fail - initial transaction is optional
+          }
         }
-      }
   
       router.push(`/patient/${encodeURIComponent(patientData.id)}`);
     } catch (err) {
-      console.error('Create patient error', err);
       setError('Failed to create patient. Please try again.');
     } finally {
       setIsLoading(false);

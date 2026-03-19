@@ -10,7 +10,6 @@ export async function GET(request: Request) {
 
   // Handle OAuth errors from Supabase
   if (error) {
-    console.error('Auth callback OAuth error:', { error, errorDescription });
     const errorMsg = encodeURIComponent(
       errorDescription || 'Authentication failed. Please try again.'
     );
@@ -18,16 +17,14 @@ export async function GET(request: Request) {
   }
 
   if (!code) {
-    console.warn('Auth callback called without code parameter');
     return NextResponse.redirect(`${origin}/auth?error=Missing%20authorization%20code`);
   }
 
   try {
     const supabase = await createSupabaseClientFromRequest(request);
     const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-    
+
     if (exchangeError) {
-      console.error('Code exchange failed:', exchangeError);
       const errorMsg = encodeURIComponent(
         exchangeError.message || 'Failed to verify authentication. Please try again.'
       );
@@ -46,10 +43,9 @@ export async function GET(request: Request) {
         return NextResponse.redirect(`${origin}/create-clinic`);
       }
     }
-    
+
     return NextResponse.redirect(`${origin}${next}`);
-  } catch (err) {
-    console.error('Auth callback exception:', err);
+  } catch {
     const errorMsg = encodeURIComponent('Authentication failed. Please try again.');
     return NextResponse.redirect(`${origin}/auth?error=${errorMsg}`);
   }

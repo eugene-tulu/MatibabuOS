@@ -48,8 +48,6 @@ export function isValidKenyanPhone(phone: string): boolean {
  * This can be run manually to verify the functionality
  */
 export function runPhoneTests(): void {
-  console.log('Running phone normalization tests...\n');
-
   // Test cases
   const testCases = [
     { input: '0712345678', expected: '+254712345678' },
@@ -71,19 +69,11 @@ export function runPhoneTests(): void {
   testCases.forEach((testCase, index) => {
     const result = normalizePhone(testCase.input);
     const success = result === testCase.expected;
-    
-    console.log(`Test ${index + 1}: ${success ? 'PASS' : 'FAIL'}`);
-    console.log(`  Input: "${testCase.input}"`);
-    console.log(`  Expected: "${testCase.expected}"`);
-    console.log(`  Got: "${result}"`);
-    console.log('');
 
     if (success) passed++;
   });
 
   // Test validation function
-  console.log('Running phone validation tests...\n');
-  
   const validationTests = [
     { input: '0712345678', expected: true },
     { input: '0700123456', expected: true },
@@ -107,15 +97,7 @@ export function runPhoneTests(): void {
   validationTests.forEach((testCase, index) => {
     const result = isValidKenyanPhone(testCase.input);
     const success = result === testCase.expected;
-    
-    console.log(`Validation Test ${index + 1}: ${success ? 'PASS' : 'FAIL'}`);
-    console.log(`  Input: "${testCase.input}"`);
-    console.log(`  Expected: ${testCase.expected}`);
-    console.log(`  Got: ${result}`);
-    console.log('');
 
     if (success) passed++;
   });
-
-  console.log(`\nSummary: ${passed}/${total} tests passed`);
 }

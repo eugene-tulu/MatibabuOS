@@ -111,7 +111,6 @@ export default function RecordTransactionModal({
           setError('Permission denied. Please check your clinic access.');
           return;
         }
-        console.error('Create transaction error:', insertError);
         setError('Failed to record transaction. Please try again.');
         return;
       }
@@ -128,7 +127,6 @@ export default function RecordTransactionModal({
       onTransactionAdded(resolvedTxn);
     } catch (err) {
       if ((err as any)?.name === 'AbortError') return;
-      console.error('Create transaction error:', err);
       setError('Failed to record transaction. Please try again.');
     } finally {
       setIsSubmitting(false);
